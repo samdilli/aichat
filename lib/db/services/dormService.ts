@@ -1,5 +1,6 @@
 import { executeQuery } from '@/lib/db/mysql';
 import { getNearbyTransitStations, TransitStationResult } from './transitService';
+import { sortFeaturesByRarity } from '@/lib/constants/featureRarity';
 
 export interface DormSearchParams {
   city?: string;
@@ -12,6 +13,7 @@ export interface DormSearchParams {
   maxPrice?: number;
   features?: string[];
   feature?: string;
+  excludeDormIds?: number[];
   limit?: number;
 }
 
@@ -60,70 +62,206 @@ export interface DormTransportationResult {
 
 // Canonical feature dictionary for exact DB feature mapping
 const FEATURE_SYNONYMS: Record<string, string[]> = {
+  // Banyo & Tuvalet & Islak Hacim varyasyonları
+  banyo: ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  banyolu: ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  'özel banyo': ['Özel Banyo', 'Banyo', 'Wc-Banyo'],
+  'ozel banyo': ['Özel Banyo', 'Banyo', 'Wc-Banyo'],
+  'kisisel banyo': ['Özel Banyo', 'Banyo', 'Wc-Banyo'],
+  'kişisel banyo': ['Özel Banyo', 'Banyo', 'Wc-Banyo'],
+  'oda içi banyo': ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  'oda ici banyo': ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  'odada banyo': ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  'oda banyolu': ['Banyo', 'Wc-Banyo', 'Özel Banyo'],
+  tuvalet: ['Wc-Banyo', 'Banyo'],
+  tuvaletli: ['Wc-Banyo', 'Banyo'],
+  wc: ['Wc-Banyo', 'Banyo'],
+  'wc-banyo': ['Wc-Banyo', 'Banyo'],
+  'wc banyo': ['Wc-Banyo', 'Banyo'],
+  'banyo-tuvalet': ['Wc-Banyo', 'Banyo'],
+  'banyo tuvalet': ['Wc-Banyo', 'Banyo'],
+  'banyo - tuvalet': ['Wc-Banyo', 'Banyo'],
+  'banyo - tuvalet (oda içinde)': ['Wc-Banyo', 'Banyo'],
+  'banyo - tuvalet (oda icinde)': ['Wc-Banyo', 'Banyo'],
+  'oda içinde tuvalet': ['Wc-Banyo', 'Banyo'],
+  'oda icinde tuvalet': ['Wc-Banyo', 'Banyo'],
+  dus: ['Banyo', 'Wc-Banyo'],
+  duş: ['Banyo', 'Wc-Banyo'],
+  duşlu: ['Banyo', 'Wc-Banyo'],
+  duslu: ['Banyo', 'Wc-Banyo'],
+
+  // Otopark
   otopark: ['Otopark'],
   otoparkli: ['Otopark'],
   otoparklı: ['Otopark'],
   'park yeri': ['Otopark'],
   'arac parki': ['Otopark'],
   'araç parkı': ['Otopark'],
+
+  // Havuz & Spa & Hamam & Sauna
   havuz: ['Yüzme havuzu'],
   havuzlu: ['Yüzme havuzu'],
   yuzme: ['Yüzme havuzu'],
   yüzme: ['Yüzme havuzu'],
   'yüzme havuzu': ['Yüzme havuzu'],
   'yuzme havuzu': ['Yüzme havuzu'],
+  sauna: ['Sauna'],
+  hamam: ['Hamam'],
+  spa: ['Spa ve sağlık merkezi', 'Sauna', 'Hamam'],
+
+  // Spor & Fitness
   spor: ['Fitness Salonu', 'Spor Salonu'],
   fitness: ['Fitness Salonu'],
   gym: ['Fitness Salonu', 'Spor Salonu'],
   'spor salonu': ['Fitness Salonu', 'Spor Salonu'],
+  'fitness salonu': ['Fitness Salonu'],
+
+  // Yemek & Beslenme
   yemek: ['Restoran - Yemekhane', 'Yemekhane', 'Sabah Kahvaltısı', 'Akşam Yemeği'],
   yemekli: ['Restoran - Yemekhane', 'Yemekhane', 'Sabah Kahvaltısı', 'Akşam Yemeği'],
   yemekhane: ['Restoran - Yemekhane', 'Yemekhane'],
+  restoran: ['Restoran - Yemekhane', 'Yemekhane'],
+  'restoran - yemekhane': ['Restoran - Yemekhane'],
   kahvalti: ['Sabah Kahvaltısı'],
   kahvaltı: ['Sabah Kahvaltısı'],
   'sabah kahvaltısı': ['Sabah Kahvaltısı'],
+  'sabah kahvaltisi': ['Sabah Kahvaltısı'],
   'aksam yemegi': ['Akşam Yemeği'],
   'akşam yemeği': ['Akşam Yemeği'],
+  kantin: ['Kantin', 'Kafeterya'],
+  kafeterya: ['Kafeterya', 'Kantin'],
+  mutfak: ['Mutfak', 'Mutfak Aletleri'],
+
+  // İklimlendirme & Konfor
   klima: ['Klima'],
   klimali: ['Klima'],
   klimalı: ['Klima'],
+  'yerden isitma': ['Yerden Isıtma'],
+  'yerden ısıtma': ['Yerden Isıtma'],
+
+  // Ulaşım
   servis: ['Okul Servisi'],
   servisli: ['Okul Servisi'],
   'okul servisi': ['Okul Servisi'],
+  shuttle: ['Okul Servisi'],
+  ring: ['Okul Servisi'],
+
+  // Dış Mekan / Manzara
   balkon: ['Balkon', 'Odalarda Balkon', 'Teras'],
   balkonlu: ['Balkon', 'Odalarda Balkon'],
+  'odalarda balkon': ['Odalarda Balkon', 'Balkon'],
   teras: ['Teras', 'Balkon'],
+  bahce: ['Bahçe', 'Bahçe Manzaralı'],
+  bahçe: ['Bahçe', 'Bahçe Manzaralı'],
+  'bahçe manzaralı': ['Bahçe Manzaralı', 'Bahçe'],
+  'deniz manzaralı': ['Deniz Manzaralı'],
+
+  // Çalışma & Kütüphane
   kutuphane: ['Kütüphane'],
   kütüphane: ['Kütüphane'],
   etut: ['Etüt Odaları', 'Etüt Salonu'],
   etüt: ['Etüt Odaları', 'Etüt Salonu'],
   'etüt odası': ['Etüt Odaları', 'Etüt Salonu'],
+  'etut odasi': ['Etüt Odaları', 'Etüt Salonu'],
+  'etüt salonu': ['Etüt Salonu', 'Etüt Odaları'],
+  'çizim odası': ['Çizim Odası'],
+  'cizim odasi': ['Çizim Odası'],
   'calisma masasi': ['Kişiye Özel Çalışma Masası', 'Çalışma Masası'],
   'çalışma masası': ['Kişiye Özel Çalışma Masası', 'Çalışma Masası'],
+  'kisiye ozel calisma masasi': ['Kişiye Özel Çalışma Masası', 'Çalışma Masası'],
+  'kişiye özel çalışma masası': ['Kişiye Özel Çalışma Masası', 'Çalışma Masası'],
+  kitaplik: ['Kitaplık'],
+  kitaplık: ['Kitaplık'],
+
+  // Güvenlik & İdari
   guvenlik: ['24 Saat Güvenlik', 'Güvenlik Kamerası'],
   güvenlik: ['24 Saat Güvenlik', 'Güvenlik Kamerası'],
   '24 saat güvenlik': ['24 Saat Güvenlik'],
+  '24 saat guvenlik': ['24 Saat Güvenlik'],
   '7/24 guvenlik': ['24 Saat Güvenlik'],
+  '7/24 güvenlik': ['24 Saat Güvenlik'],
+  'guvenlik kamerasi': ['Güvenlik Kamerası', '24 Saat Güvenlik'],
+  'güvenlik kamerası': ['Güvenlik Kamerası', '24 Saat Güvenlik'],
+  '24 saat yonetici': ['24 Saat Yönetici'],
+  '24 saat yönetici': ['24 Saat Yönetici'],
+  '7/24 resepsiyon': ['7/24 Resepsiyon', '24 Saat Yönetici'],
+  'parmak izi': ['Parmak Okuyucu Giriş Sistemi'],
+  'parmak okuyucu': ['Parmak Okuyucu Giriş Sistemi'],
+  'yangin alarmi': ['Yangın Alarmı'],
+  'yangın alarmı': ['Yangın Alarmı'],
+  'yangin merdiveni': ['Yangın Merdiveni'],
+  'yangın merdiveni': ['Yangın Merdiveni'],
+
+  // Su & Altyapı
   'sicak su': ['7/24 Sıcak Su', '24 Saat Sıcak Su'],
   'sıcak su': ['7/24 Sıcak Su', '24 Saat Sıcak Su'],
   '7/24 sıcak su': ['7/24 Sıcak Su', '24 Saat Sıcak Su'],
+  '24 saat sıcak su': ['24 Saat Sıcak Su', '7/24 Sıcak Su'],
+  'icme suyu': ['Ücretsiz İçme Suyu'],
+  'içme suyu': ['Ücretsiz İçme Suyu'],
+  'ücretsiz içme suyu': ['Ücretsiz İçme Suyu'],
+  'ucretsiz icme suyu': ['Ücretsiz İçme Suyu'],
+  aritma: ['Ücretsiz İçme Suyu'],
+  arıtma: ['Ücretsiz İçme Suyu'],
+  jenerator: ['Jeneratör'],
+  jeneratör: ['Jeneratör'],
+  asansor: ['Asansör'],
+  asansör: ['Asansör'],
+  'su deposu': ['Su Deposu'],
+
+  // Çamaşır & Temizlik
   camasir: ['Çamaşır Odası', 'Çamaşırhane', 'Çamaşır Makinesi'],
   çamaşır: ['Çamaşır Odası', 'Çamaşırhane', 'Çamaşır Makinesi'],
   çamaşırhane: ['Çamaşırhane', 'Çamaşır Odası'],
+  camasirhane: ['Çamaşırhane', 'Çamaşır Odası'],
+  'çamaşır odası': ['Çamaşır Odası', 'Çamaşırhane'],
+  'camasir odasi': ['Çamaşır Odası', 'Çamaşırhane'],
+  'çamaşır makinesi': ['Çamaşır Makinesi', 'Çamaşır Odası', 'Çamaşırhane'],
+  'kurutma makinesi': ['Kurutma Makinesi', 'Çamaşır Odası'],
+  'bulaşık makinesi': ['Bulaşık Makinesi'],
+  'ütü odası': ['Ütü Odası'],
+  'utu odasi': ['Ütü Odası'],
+  temizlik: ['Oda Temizliği', 'Temizlik', 'Temizlik Hizmeti'],
+  'oda temizliği': ['Oda Temizliği', 'Temizlik'],
+  'oda temizligi': ['Oda Temizliği', 'Temizlik'],
+
+  // İnternet
   wifi: ['Ücretsiz Wi-Fi', 'Wifi', 'Ücretsiz İnternet'],
   internet: ['Ücretsiz Wi-Fi', 'Wifi', 'Ücretsiz İnternet'],
-  'ucretsiz wifi': ['Ücretsiz Wi-Fi'],
-  'ücretsiz wi-fi': ['Ücretsiz Wi-Fi'],
+  'ucretsiz wifi': ['Ücretsiz Wi-Fi', 'Wifi'],
+  'ücretsiz wi-fi': ['Ücretsiz Wi-Fi', 'Wifi'],
+  'ücretsiz internet': ['Ücretsiz İnternet', 'Ücretsiz Wi-Fi', 'Wifi'],
+
+  // Oda Eşyaları & Yatak & Dolap
+  dolap: ['Kişisel Dolap', 'Gardırop'],
+  gardirop: ['Gardırop', 'Kişisel Dolap'],
+  gardırop: ['Gardırop', 'Kişisel Dolap'],
+  'kisisel dolap': ['Kişisel Dolap', 'Gardırop'],
+  'kişisel dolap': ['Kişisel Dolap', 'Gardırop'],
+  baza: ['Yatak Bazalı'],
+  bazali: ['Yatak Bazalı'],
+  bazalı: ['Yatak Bazalı'],
+  ranza: ['Yatak Ranzalı'],
+  ranzali: ['Yatak Ranzalı'],
+  ranzalı: ['Yatak Ranzalı'],
+  'yatak bazalı': ['Yatak Bazalı'],
+  'yatak ranzalı': ['Yatak Ranzalı'],
+  'bavul odası': ['Bavul Odası'],
+  'bavul odasi': ['Bavul Odası'],
+  'mini buzdolabı': ['Mini Buzdolabı'],
+  'mini buzdolabi': ['Mini Buzdolabı'],
+  buzdolabi: ['Mini Buzdolabı'],
+  buzdolabı: ['Mini Buzdolabı'],
+  televizyon: ['Televizyon', 'TV'],
+  tv: ['TV', 'Televizyon'],
+
+  // Sosyal & İbadet
   mescit: ['Mescit'],
-  sauna: ['Sauna'],
-  hamam: ['Hamam'],
-  spa: ['Spa ve sağlık merkezi', 'Sauna', 'Hamam'],
-  asansor: ['Asansör'],
-  asansör: ['Asansör'],
-  jenerator: ['Jeneratör'],
-  jeneratör: ['Jeneratör'],
-  bahce: ['Bahçe', 'Bahçe Manzaralı'],
-  bahçe: ['Bahçe', 'Bahçe Manzaralı'],
+  revir: ['Revir'],
+  'oyun konsolları': ['Oyun Konsolları'],
+  bilardo: ['Bilardo'],
+  'masa tenisi': ['Masa Tenisi'],
+  'dinlenme odası': ['Dinlenme Odası'],
 };
 
 function normalizeTurkishForSearch(text: string): string {
@@ -131,26 +269,49 @@ function normalizeTurkishForSearch(text: string): string {
   return text
     .trim()
     .toLowerCase()
+    .replace(/[()\-–—_.,;:*+/]/g, ' ')
+    .replace(/\s+/g, ' ')
     .replace(/ğ/g, 'g')
     .replace(/ü/g, 'u')
     .replace(/ş/g, 's')
     .replace(/ı/g, 'i')
     .replace(/ö/g, 'o')
-    .replace(/ç/g, 'c');
+    .replace(/ç/g, 'c')
+    .trim();
 }
 
-function resolveFeatureMatches(featureInput: string): string[] {
-  const norm = normalizeTurkishForSearch(featureInput);
+export function resolveFeatureMatches(featureInput: string): string[] {
+  if (!featureInput || !featureInput.trim()) return [];
+  const rawClean = featureInput.trim();
+  const norm = normalizeTurkishForSearch(rawClean);
+
   if (FEATURE_SYNONYMS[norm]) {
     return FEATURE_SYNONYMS[norm];
   }
-  // Try partial match in dictionary
-  for (const [key, values] of Object.entries(FEATURE_SYNONYMS)) {
-    if (norm.includes(key) || key.includes(norm)) {
-      return values;
+
+  // Check sub-phrases / keywords in the input (e.g. "banyo - tuvalet (oda içinde)" -> matches "banyo", "tuvalet")
+  const matchedSet = new Set<string>();
+
+  // Direct word token check
+  const tokens = norm.split(/\s+/).filter((t) => t.length >= 2);
+  for (const token of tokens) {
+    if (FEATURE_SYNONYMS[token]) {
+      FEATURE_SYNONYMS[token].forEach((v) => matchedSet.add(v));
     }
   }
-  return [featureInput.trim()];
+
+  // Substring checks in dictionary
+  for (const [key, values] of Object.entries(FEATURE_SYNONYMS)) {
+    if (norm.includes(key) || key.includes(norm)) {
+      values.forEach((v) => matchedSet.add(v));
+    }
+  }
+
+  if (matchedSet.size > 0) {
+    return Array.from(matchedSet);
+  }
+
+  return [rawClean];
 }
 
 function parseJsonSafe(jsonStr: any, fallback: any = null) {
@@ -374,200 +535,250 @@ function resolveUniversityKeywords(targetUniversity?: string, query?: string): s
   return Array.from(keywordsSet).filter(Boolean);
 }
 
-function filterTargetUniversity(
-  nearUniversitiesText: string | null | undefined,
-  targetUniversity?: string,
-  query?: string
-): string | null {
-  if (!nearUniversitiesText) return null;
-
-  const entries = nearUniversitiesText
-    .split('|')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (entries.length === 0) return null;
-
-  const searchKeywords = resolveUniversityKeywords(targetUniversity, query);
-
-  // If user searched for a specific university, ONLY return matched entries for that university!
-  if (searchKeywords.length > 0) {
-    const matched = entries.filter((entry) => {
-      const entryNormalized = normalizeTurkish(entry);
-      return searchKeywords.some((kw) => kw && entryNormalized.includes(kw));
-    });
-
-    if (matched.length > 0) {
-      return matched.join(' | ');
-    }
-    // If user searched for a specific university but this dorm has no record for it,
-    // do NOT return unrelated universities!
-    return null;
+function formatFlatUniversityRoute(uni: {
+  university_name: string;
+  walking_minutes?: number | null;
+  walking_distance_km?: number | string | null;
+  driving_minutes?: number | null;
+  driving_distance_km?: number | string | null;
+}): string {
+  const parts: string[] = [];
+  if (uni.walking_minutes != null || uni.walking_distance_km != null) {
+    const mins = uni.walking_minutes != null ? `${uni.walking_minutes} dk` : '';
+    const dist = uni.walking_distance_km != null ? `${Number(uni.walking_distance_km).toFixed(2)} km` : '';
+    const text = [mins, dist].filter(Boolean).join(' / ');
+    if (text) parts.push(`Yürüyüş: ${text}`);
+  }
+  if (uni.driving_minutes != null || uni.driving_distance_km != null) {
+    const mins = uni.driving_minutes != null ? `${uni.driving_minutes} dk` : '';
+    const dist = uni.driving_distance_km != null ? `${Number(uni.driving_distance_km).toFixed(2)} km` : '';
+    const text = [mins, dist].filter(Boolean).join(' / ');
+    if (text) parts.push(`Araç: ${text}`);
   }
 
-  // If no specific university was requested, return only the top 2 closest universities
-  return entries.slice(0, 2).join(' | ');
-}
-
-function extractDistanceToUniversity(
-  nearUniversitiesText: string | null | undefined,
-  targetUniversity?: string,
-  query?: string
-): number {
-  if (!nearUniversitiesText) return 99999;
-
-  const entries = nearUniversitiesText
-    .split('|')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  if (entries.length === 0) return 99999;
-
-  const searchKeywords = resolveUniversityKeywords(targetUniversity, query);
-
-  if (searchKeywords.length === 0) return 99999;
-
-  const matchedEntries = entries.filter((entry) => {
-    const entryNormalized = normalizeTurkish(entry);
-    return searchKeywords.some((kw) => kw && entryNormalized.includes(kw));
-  });
-
-  if (matchedEntries.length === 0) return 99999;
-
-  let minKm = 99999;
-
-  for (const entry of matchedEntries) {
-    // Match driving distance
-    const drivingMatch = entry.match(/araç[^,:]*?\/\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b/i);
-    if (drivingMatch) {
-      const val = parseFloat(drivingMatch[1].replace(',', '.'));
-      const km = drivingMatch[2].toLowerCase() === 'm' ? val / 1000 : val;
-      if (km < minKm) minKm = km;
-    }
-
-    // Match walking distance
-    const walkingMatch = entry.match(/yürüyüş[^,:]*?\/\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b/i);
-    if (walkingMatch) {
-      const val = parseFloat(walkingMatch[1].replace(',', '.'));
-      const km = walkingMatch[2].toLowerCase() === 'm' ? val / 1000 : val;
-      if (km < minKm) minKm = km;
-    }
-
-    // General distance match if not caught by walking/driving prefix
-    if (minKm === 99999) {
-      const generalMatches = [...entry.matchAll(/\/\s*(\d+(?:[.,]\d+)?)\s*(km|m)\b/gi)];
-      for (const gm of generalMatches) {
-        const val = parseFloat(gm[1].replace(',', '.'));
-        const km = gm[2].toLowerCase() === 'm' ? val / 1000 : val;
-        if (km < minKm) minKm = km;
-      }
-    }
+  if (parts.length > 0) {
+    return `${uni.university_name} (${parts.join(' | ')})`;
   }
-
-  return minKm;
+  return uni.university_name;
 }
 
 export async function searchDorms(params: DormSearchParams): Promise<DormSearchResult[]> {
-  const conditions: string[] = ['d.status = 1'];
-  const sqlParams: any[] = [];
+  const limit = Math.min(Math.max(Number(params.limit) || 3, 1), 12);
+  const isUniversitySearch = Boolean(
+    (params.university && params.university.trim()) ||
+    (params.query && /üni|uni|kampüs|kampus|yerleşke|yerleske/i.test(params.query))
+  );
 
-  if (params.city && params.city.trim()) {
-    const cityTrim = params.city.trim();
-    conditions.push('(d.city_name LIKE ? OR d.city_slug = ? OR d.city_name LIKE ?)');
-    sqlParams.push(`%${cityTrim}%`, cityTrim.toLowerCase(), `%${cityTrim.replace(/i/gi, 'İ')}%`);
-  }
+  // Common filters builder
+  const buildConditions = (aliasPrefix = 'd.') => {
+    const conditions: string[] = [`${aliasPrefix}status = 1`];
+    const sqlParams: any[] = [];
 
-  if (params.district && params.district.trim()) {
-    const distTrim = params.district.trim();
-    conditions.push('(d.district_name LIKE ? OR d.district_slug = ? OR d.district_name LIKE ?)');
-    sqlParams.push(`%${distTrim}%`, distTrim.toLowerCase(), `%${distTrim.replace(/i/gi, 'İ')}%`);
-  }
+    // Exclude previously seen dorm IDs if specified
+    if (params.excludeDormIds && Array.isArray(params.excludeDormIds)) {
+      const validExcludeIds = params.excludeDormIds
+        .map((id) => Number(id))
+        .filter((id) => !isNaN(id) && id > 0);
 
-  if (params.gender && params.gender.trim()) {
-    const g = params.gender.trim().toLowerCase();
-    if (g.includes('kız') || g.includes('kiz') || g.includes('bayan') || g.includes('kadın')) {
-      conditions.push('d.gender LIKE ?');
-      sqlParams.push('%Kız%');
-    } else if (g.includes('erkek') || g.includes('bay')) {
-      conditions.push('d.gender LIKE ?');
-      sqlParams.push('%Erkek%');
+      if (validExcludeIds.length > 0) {
+        const placeholders = validExcludeIds.map(() => '?').join(', ');
+        conditions.push(`${aliasPrefix}dorm_id NOT IN (${placeholders})`);
+        sqlParams.push(...validExcludeIds);
+      }
     }
-  }
 
-  // Handle university filter explicitly using near_universities_text and acronym resolver
-  if (params.university && params.university.trim()) {
-    const keywords = resolveUniversityKeywords(params.university);
-    if (keywords.length > 0) {
-      const likeClauses = keywords.slice(0, 4).map(() => 'd.near_universities_text LIKE ?').join(' OR ');
-      conditions.push(`(${likeClauses})`);
-      keywords.slice(0, 4).forEach((kw) => sqlParams.push(`%${kw}%`));
+    if (params.city && params.city.trim()) {
+      const cityTrim = params.city.trim();
+      conditions.push(`(${aliasPrefix}city_name LIKE ? OR ${aliasPrefix}city_slug = ? OR ${aliasPrefix}city_name LIKE ?)`);
+      sqlParams.push(`%${cityTrim}%`, cityTrim.toLowerCase(), `%${cityTrim.replace(/i/gi, 'İ')}%`);
     }
-  }
 
-  // Collect features from both features array and feature string
-  const requestedFeatures: string[] = [];
-  if (params.features && Array.isArray(params.features)) {
-    requestedFeatures.push(...params.features.filter((f) => f && f.trim()));
-  }
-  if (params.feature && params.feature.trim()) {
-    requestedFeatures.push(params.feature.trim());
-  }
-
-  // Check if query is actually a feature request (e.g. "otopark", "havuz", "spor salonu", "servis")
-  let textQuery = params.query ? params.query.trim() : '';
-  if (textQuery) {
-    const normQ = normalizeTurkishForSearch(textQuery);
-    if (FEATURE_SYNONYMS[normQ]) {
-      requestedFeatures.push(textQuery);
-      textQuery = ''; // Consumed as feature
+    if (params.district && params.district.trim()) {
+      const distTrim = params.district.trim();
+      conditions.push(`(${aliasPrefix}district_name LIKE ? OR ${aliasPrefix}district_slug = ? OR ${aliasPrefix}district_name LIKE ?)`);
+      sqlParams.push(`%${distTrim}%`, distTrim.toLowerCase(), `%${distTrim.replace(/i/gi, 'İ')}%`);
     }
-  }
 
-  // Apply feature filters to SQL query
-  if (requestedFeatures.length > 0) {
-    for (const feat of requestedFeatures) {
-      const resolvedNames = resolveFeatureMatches(feat);
-      if (resolvedNames.length === 1) {
-        conditions.push('d.feature_names_text LIKE ?');
-        sqlParams.push(`%${resolvedNames[0]}%`);
-      } else if (resolvedNames.length > 1) {
-        const featureOrClauses = resolvedNames.map(() => 'd.feature_names_text LIKE ?').join(' OR ');
-        conditions.push(`(${featureOrClauses})`);
-        for (const rn of resolvedNames) {
-          sqlParams.push(`%${rn}%`);
+    if (params.gender && params.gender.trim()) {
+      const g = params.gender.trim().toLowerCase();
+      if (g.includes('kız') || g.includes('kiz') || g.includes('bayan') || g.includes('kadın')) {
+        conditions.push(`${aliasPrefix}gender LIKE ?`);
+        sqlParams.push('%Kız%');
+      } else if (g.includes('erkek') || g.includes('bay')) {
+        conditions.push(`${aliasPrefix}gender LIKE ?`);
+        sqlParams.push('%Erkek%');
+      }
+    }
+
+    // Collect features from both features array and feature string
+    const requestedFeatures: string[] = [];
+    if (params.features && Array.isArray(params.features)) {
+      requestedFeatures.push(...params.features.filter((f) => f && f.trim()));
+    }
+    if (params.feature && params.feature.trim()) {
+      requestedFeatures.push(params.feature.trim());
+    }
+
+    // Check if query is actually a feature request (e.g. "otopark", "havuz", "spor salonu", "servis")
+    let textQuery = params.query ? params.query.trim() : '';
+    if (textQuery && !isUniversitySearch) {
+      const normQ = normalizeTurkishForSearch(textQuery);
+      if (FEATURE_SYNONYMS[normQ]) {
+        requestedFeatures.push(textQuery);
+        textQuery = ''; // Consumed as feature
+      }
+    }
+
+    // Apply feature filters to SQL query
+    if (requestedFeatures.length > 0) {
+      for (const feat of requestedFeatures) {
+        const resolvedNames = resolveFeatureMatches(feat);
+        if (resolvedNames.length === 1) {
+          conditions.push(`${aliasPrefix}feature_names_text LIKE ?`);
+          sqlParams.push(`%${resolvedNames[0]}%`);
+        } else if (resolvedNames.length > 1) {
+          const featureOrClauses = resolvedNames.map(() => `${aliasPrefix}feature_names_text LIKE ?`).join(' OR ');
+          conditions.push(`(${featureOrClauses})`);
+          for (const rn of resolvedNames) {
+            sqlParams.push(`%${rn}%`);
+          }
         }
       }
     }
+
+    if (textQuery && !isUniversitySearch) {
+      conditions.push(
+        `(${aliasPrefix}dorm_name LIKE ? OR ${aliasPrefix}feature_names_text LIKE ? OR ${aliasPrefix}description_snippet LIKE ?)`
+      );
+      sqlParams.push(`%${textQuery}%`, `%${textQuery}%`, `%${textQuery}%`);
+    }
+
+    if (params.minRating && params.minRating > 0) {
+      conditions.push(`${aliasPrefix}google_rating >= ?`);
+      sqlParams.push(params.minRating);
+    }
+
+    if (params.minPrice && params.minPrice > 0) {
+      conditions.push('p.predicted_min_price >= ?');
+      sqlParams.push(params.minPrice);
+    }
+
+    if (params.maxPrice && params.maxPrice > 0) {
+      conditions.push('p.predicted_max_price <= ?');
+      sqlParams.push(params.maxPrice);
+    }
+
+    return { conditions, sqlParams };
+  };
+
+  // Case 1: University search using ai_dorm_university_flat
+  if (isUniversitySearch) {
+    const { conditions, sqlParams } = buildConditions('d.');
+    const uniKeywords = resolveUniversityKeywords(params.university, params.query);
+
+    if (uniKeywords.length > 0) {
+      const uniOrClauses = uniKeywords.slice(0, 6).map(() => 'uf.university_name LIKE ?').join(' OR ');
+      conditions.push(`(${uniOrClauses})`);
+      uniKeywords.slice(0, 6).forEach((kw) => sqlParams.push(`%${kw}%`));
+    }
+
+    conditions.push('uf.within_20km = 1');
+
+    const whereClause = conditions.join(' AND ');
+    const sql = `
+      SELECT 
+        d.dorm_id,
+        d.dorm_name,
+        d.gender,
+        d.dorm_type,
+        d.city_name,
+        d.district_name,
+        d.google_rating,
+        d.google_review_count,
+        d.contact_json,
+        d.feature_names_text,
+        d.review_pros_raw,
+        d.review_cons_raw,
+        d.review_highlight,
+        d.detail_path,
+        p.predicted_min_price,
+        p.predicted_max_price,
+        p.confidence_level,
+        uf.university_id,
+        uf.university_name,
+        uf.walking_minutes,
+        uf.walking_distance_km,
+        uf.driving_minutes,
+        uf.driving_distance_km
+      FROM ai_dorm_university_flat uf
+      JOIN ai_dorm_search_index d ON uf.dorm_id = d.dorm_id
+      LEFT JOIN dorm_price_predictions p ON d.dorm_id = p.dorm_id
+      WHERE ${whereClause}
+      ORDER BY 
+        uf.walking_distance_km ASC,
+        uf.driving_distance_km ASC,
+        d.google_rating DESC
+      LIMIT ?
+    `;
+
+    // Fetch extra to handle multi-campus deduplication
+    sqlParams.push(limit * 3);
+    const rows = await executeQuery<any>(sql, sqlParams);
+
+    const seenDorms = new Set<number>();
+    const results: DormSearchResult[] = [];
+
+    for (const row of rows) {
+      if (seenDorms.has(row.dorm_id)) continue;
+      seenDorms.add(row.dorm_id);
+
+      const contact = parseJsonSafe(row.contact_json, {});
+      const pros = parseJsonSafe(row.review_pros_raw, []);
+      const cons = parseJsonSafe(row.review_cons_raw, []);
+      const rawFeatures = row.feature_names_text
+        ? row.feature_names_text.split('|').map((s: string) => s.trim()).filter(Boolean)
+        : [];
+      const featuresList = sortFeaturesByRarity(rawFeatures);
+      const distanceKm = row.walking_distance_km != null
+        ? Number(row.walking_distance_km)
+        : row.driving_distance_km != null
+        ? Number(row.driving_distance_km)
+        : null;
+
+      results.push({
+        dormId: row.dorm_id,
+        dormName: row.dorm_name,
+        gender: row.gender || 'Belirtilmemiş',
+        dormType: row.dorm_type,
+        cityName: row.city_name,
+        districtName: row.district_name || '',
+        googleRating: row.google_rating ? Number(row.google_rating) : null,
+        googleReviewCount: row.google_review_count ? Number(row.google_review_count) : null,
+        predictedMinPrice: row.predicted_min_price || null,
+        predictedMaxPrice: row.predicted_max_price || null,
+        priceConfidence: row.confidence_level || null,
+        features: featuresList,
+        pros: Array.isArray(pros) ? pros : [],
+        cons: Array.isArray(cons) ? cons : [],
+        reviewHighlight: row.review_highlight || null,
+        phones: Array.isArray(contact?.phones) ? contact.phones.filter(Boolean) : [],
+        whatsapp: contact?.whatsapp || null,
+        website: contact?.website || null,
+        address: contact?.address || null,
+        detailPath: row.detail_path,
+        nearUniversities: formatFlatUniversityRoute(row),
+        distanceKm,
+      });
+
+      if (results.length >= limit) break;
+    }
+
+    return results;
   }
 
-  if (textQuery) {
-    conditions.push(
-      '(d.dorm_name LIKE ? OR d.feature_names_text LIKE ? OR d.near_universities_text LIKE ? OR d.description_snippet LIKE ?)'
-    );
-    sqlParams.push(`%${textQuery}%`, `%${textQuery}%`, `%${textQuery}%`, `%${textQuery}%`);
-  }
-
-  if (params.minRating && params.minRating > 0) {
-    conditions.push('d.google_rating >= ?');
-    sqlParams.push(params.minRating);
-  }
-
-  if (params.minPrice && params.minPrice > 0) {
-    conditions.push('p.predicted_min_price >= ?');
-    sqlParams.push(params.minPrice);
-  }
-
-  if (params.maxPrice && params.maxPrice > 0) {
-    conditions.push('p.predicted_max_price <= ?');
-    sqlParams.push(params.maxPrice);
-  }
-
-  const limit = Math.min(Math.max(Number(params.limit) || 5, 1), 12);
+  // Case 2: General / non-university search
+  const { conditions, sqlParams } = buildConditions('d.');
   const whereClause = conditions.join(' AND ');
-  const isUniversitySearch = Boolean(
-    (params.university && params.university.trim()) ||
-    (params.query && /üni|uni|kampüs|kampus/i.test(params.query))
-  );
 
   const sql = `
     SELECT 
@@ -584,7 +795,6 @@ export async function searchDorms(params: DormSearchParams): Promise<DormSearchR
       d.review_pros_raw,
       d.review_cons_raw,
       d.review_highlight,
-      d.near_universities_text,
       d.detail_path,
       p.predicted_min_price,
       p.predicted_max_price,
@@ -599,19 +809,49 @@ export async function searchDorms(params: DormSearchParams): Promise<DormSearchR
     LIMIT ?
   `;
 
-  // Fetch more candidates for university searches so we can sort accurately by proximity
-  sqlParams.push(isUniversitySearch ? 60 : limit);
-
+  sqlParams.push(limit);
   const rows = await executeQuery<any>(sql, sqlParams);
 
-  const results: DormSearchResult[] = rows.map((row) => {
+  if (rows.length === 0) return [];
+
+  // Batch query closest universities for these dorms from ai_dorm_university_flat
+  const dormIds = rows.map((r) => r.dorm_id);
+  const dormUniversitiesMap = new Map<number, string[]>();
+
+  if (dormIds.length > 0) {
+    try {
+      const placeholders = dormIds.map(() => '?').join(',');
+      const uniRows = await executeQuery<any>(
+        `SELECT dorm_id, university_name, walking_minutes, walking_distance_km, driving_minutes, driving_distance_km 
+         FROM ai_dorm_university_flat 
+         WHERE dorm_id IN (${placeholders}) AND within_20km = 1 
+         ORDER BY walking_distance_km ASC`,
+        dormIds
+      );
+
+      for (const uRow of uniRows) {
+        if (!dormUniversitiesMap.has(uRow.dorm_id)) {
+          dormUniversitiesMap.set(uRow.dorm_id, []);
+        }
+        const list = dormUniversitiesMap.get(uRow.dorm_id)!;
+        if (list.length < 2) {
+          list.push(formatFlatUniversityRoute(uRow));
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }
+
+  return rows.map((row) => {
     const contact = parseJsonSafe(row.contact_json, {});
     const pros = parseJsonSafe(row.review_pros_raw, []);
     const cons = parseJsonSafe(row.review_cons_raw, []);
-    const featuresList = row.feature_names_text
+    const rawFeatures = row.feature_names_text
       ? row.feature_names_text.split('|').map((s: string) => s.trim()).filter(Boolean)
       : [];
-    const calculatedDist = extractDistanceToUniversity(row.near_universities_text, params.university, params.query);
+    const featuresList = sortFeaturesByRarity(rawFeatures);
+    const closeUnis = dormUniversitiesMap.get(row.dorm_id);
 
     return {
       dormId: row.dorm_id,
@@ -634,40 +874,10 @@ export async function searchDorms(params: DormSearchParams): Promise<DormSearchR
       website: contact?.website || null,
       address: contact?.address || null,
       detailPath: row.detail_path,
-      nearUniversities: filterTargetUniversity(row.near_universities_text, params.university, params.query),
-      distanceKm: calculatedDist < 99990 ? calculatedDist : null,
+      nearUniversities: closeUnis && closeUnis.length > 0 ? closeUnis.join(' | ') : null,
+      distanceKm: null,
     };
   });
-
-  if (isUniversitySearch) {
-    results.sort((a, b) => {
-      const distA = a.distanceKm ?? 99999;
-      const distB = b.distanceKm ?? 99999;
-
-      // If both have valid distances
-      if (distA !== 99999 && distB !== 99999) {
-        // If distance difference > 0.3 km, sort strictly by distance
-        if (Math.abs(distA - distB) > 0.3) {
-          return distA - distB;
-        }
-        // If distance is very close (within 300m), sort by rating and review count
-        const ratingDiff = (b.googleRating || 0) - (a.googleRating || 0);
-        if (Math.abs(ratingDiff) > 0.2) {
-          return ratingDiff;
-        }
-        return (b.googleReviewCount || 0) - (a.googleReviewCount || 0);
-      }
-
-      // Dorms with matched distance come first
-      if (distA !== 99999) return -1;
-      if (distB !== 99999) return 1;
-
-      // Fallback: rating sort
-      return (b.googleRating || 0) - (a.googleRating || 0);
-    });
-  }
-
-  return results.slice(0, limit);
 }
 
 export async function getDormByIdOrName(
@@ -694,7 +904,6 @@ export async function getDormByIdOrName(
     d.review_pros_raw,
     d.review_cons_raw,
     d.review_highlight,
-    d.near_universities_text,
     d.detail_path,
     p.predicted_min_price,
     p.predicted_max_price,
@@ -729,9 +938,10 @@ export async function getDormByIdOrName(
   const contact = parseJsonSafe(row.contact_json, {});
   const pros = parseJsonSafe(row.review_pros_raw, []);
   const cons = parseJsonSafe(row.review_cons_raw, []);
-  const featuresList = row.feature_names_text
+  const rawFeatures = row.feature_names_text
     ? row.feature_names_text.split('|').map((s: string) => s.trim()).filter(Boolean)
     : [];
+  const featuresList = sortFeaturesByRarity(rawFeatures);
 
   let nearbyTransitStations: TransitStationResult[] = [];
   if (row.lat && row.lng) {
@@ -745,6 +955,53 @@ export async function getDormByIdOrName(
     } catch {
       nearbyTransitStations = [];
     }
+  }
+
+  // Fetch university routes from ai_dorm_university_flat
+  let nearUniversitiesFormatted: string | null = null;
+  let distanceKm: number | null = null;
+
+  try {
+    if (targetUniversity && targetUniversity.trim()) {
+      const searchKeywords = resolveUniversityKeywords(targetUniversity);
+      if (searchKeywords.length > 0) {
+        const uniOrClauses = searchKeywords.slice(0, 6).map(() => 'university_name LIKE ?').join(' OR ');
+        const flatParams = [row.dorm_id, ...searchKeywords.slice(0, 6).map((kw) => `%${kw}%`)];
+        const flatRows = await executeQuery<any>(
+          `SELECT university_name, walking_minutes, walking_distance_km, driving_minutes, driving_distance_km, within_20km 
+           FROM ai_dorm_university_flat 
+           WHERE dorm_id = ? AND (${uniOrClauses}) 
+           ORDER BY walking_distance_km ASC 
+           LIMIT 1`,
+          flatParams
+        );
+
+        if (flatRows.length > 0) {
+          nearUniversitiesFormatted = formatFlatUniversityRoute(flatRows[0]);
+          distanceKm = flatRows[0].walking_distance_km != null
+            ? Number(flatRows[0].walking_distance_km)
+            : flatRows[0].driving_distance_km != null
+            ? Number(flatRows[0].driving_distance_km)
+            : null;
+        }
+      }
+    } else {
+      // Top 3 closest universities within 20km
+      const flatRows = await executeQuery<any>(
+        `SELECT university_name, walking_minutes, walking_distance_km, driving_minutes, driving_distance_km 
+         FROM ai_dorm_university_flat 
+         WHERE dorm_id = ? AND within_20km = 1 
+         ORDER BY walking_distance_km ASC 
+         LIMIT 3`,
+        [row.dorm_id]
+      );
+
+      if (flatRows.length > 0) {
+        nearUniversitiesFormatted = flatRows.map((f: any) => formatFlatUniversityRoute(f)).join(' | ');
+      }
+    }
+  } catch {
+    nearUniversitiesFormatted = null;
   }
 
   return {
@@ -768,7 +1025,8 @@ export async function getDormByIdOrName(
     website: contact?.website || null,
     address: contact?.address || null,
     detailPath: row.detail_path,
-    nearUniversities: filterTargetUniversity(row.near_universities_text, targetUniversity),
+    nearUniversities: nearUniversitiesFormatted,
+    distanceKm,
     nearbyTransit: nearbyTransitStations.length > 0 ? nearbyTransitStations : undefined,
   };
 }

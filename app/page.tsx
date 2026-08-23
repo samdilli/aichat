@@ -652,6 +652,14 @@ export default function ChatPage() {
               isOpen={modelSelectorOpen}
               onClose={() => setModelSelectorOpen(false)}
             />
+
+            <a
+              href="/test-dorm-card"
+              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium border border-emerald-200 transition"
+              title="Yatay Kart Tasarım Test Sayfası"
+            >
+              <span>Kart Tasarım Testi</span>
+            </a>
           </div>
 
           <div className="flex items-center gap-1">

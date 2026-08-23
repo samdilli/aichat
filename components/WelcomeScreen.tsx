@@ -47,6 +47,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelectPrompt }) 
         <p className="text-neutral-500 text-sm mt-2 max-w-md mx-auto">
           Yurt arama, üniversite yakınlıkları, tahmini fiyatlar, ulaşım ve öğrenci yorumları hakkında dilediğinizi sorabilirsiniz.
         </p>
+
+        <div className="mt-4 inline-block">
+          <a
+            href="/test-dorm-card"
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-xs font-semibold transition shadow-xs"
+          >
+            <span>✨ Yatay Minimal Kart Tasarım Önizlemesi</span>
+            <span className="text-[11px] bg-emerald-600 text-white px-1.5 py-0.2 rounded-md font-mono">Test Sayfası</span>
+          </a>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full mt-4 text-left">

@@ -8,17 +8,17 @@ export const dormFunctionDeclarations: FunctionDeclaration[] = [
   {
     name: 'searchDorms',
     description:
-      'Türkiye genelindeki öğrenci yurtlarını veritabanından kesin olarak filtreler ve listeler. Şehir, ilçe, cinsiyet (kız/erkek), üniversite yakınlığı, fiyat aralığı ve OLANAKLAR/ÖZELLİKLER (örn: Otopark, Yüzme havuzu, Spor Salonu, Yemek, Okul Servisi, vb.) kriterlerine göre SQL sorgusu yapar.',
+      'Türkiye genelindeki öğrenci yurtlarını veritabanından kesin olarak filtreler ve listeler. Şehir, ilçe, cinsiyet (kız/erkek), üniversite yakınlığı, fiyat aralığı ve OLANAKLAR/ÖZELLİKLER (örn: Banyo, Wc-Banyo, Otopark, Yüzme havuzu, Spor Salonu, Yemek, Okul Servisi, Klima, Çalışma Masası vb.) kriterlerine göre SQL sorgusu yapar.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         city: {
           type: Type.STRING,
-          description: 'Arama yapılacak şehir adı (Örn: İstanbul, Ankara, İzmir, Eskişehir, Bursa vb.)',
+          description: 'Arama yapılacak şehir adı (Örn: Manisa, İstanbul, Ankara, İzmir, Eskişehir, Bursa vb.)',
         },
         district: {
           type: Type.STRING,
-          description: 'Arama yapılacak ilçe adı (Örn: Kadıköy, Beşiktaş, Kağıthane, Çankaya, Bornova vb.)',
+          description: 'Arama yapılacak ilçe adı (Örn: Yunusemre, Şehzadeler, Kadıköy, Beşiktaş, Çankaya, Bornova vb.)',
         },
         gender: {
           type: Type.STRING,
@@ -27,18 +27,18 @@ export const dormFunctionDeclarations: FunctionDeclaration[] = [
         university: {
           type: Type.STRING,
           description:
-            'Yakınında yurt aranan üniversite veya kampüs adı (Örn: "Nişantaşı Üniversitesi", "Işık Üniversitesi", "Marmara Üniversitesi", "İTÜ", "Boğaziçi", "ODTÜ", "Ege Üniversitesi"). Üniversiteye yakın yurt arandığında üniversite ismi MUTLAKA buraya yazılmalıdır.',
+            'Yakınında yurt aranan üniversite veya kampüs adı (Örn: "Manisa Celal Bayar Üniversitesi", "Nişantaşı Üniversitesi", "Işık Üniversitesi", "Marmara Üniversitesi", "İTÜ", "Boğaziçi", "ODTÜ", "Ege Üniversitesi"). Üniversiteye yakın yurt arandığında üniversite ismi MUTLAKA buraya yazılmalıdır.',
         },
         features: {
           type: Type.ARRAY,
           items: { type: Type.STRING },
           description:
-            'Yurtta kesinlikle bulunması istenen olanaklar listesi. Örnekler: ["Otopark"], ["Yüzme havuzu"], ["Spor Salonu"], ["Okul Servisi"], ["Restoran - Yemekhane"], ["Klima"], ["Balkon"], ["Kütüphane"], ["24 Saat Güvenlik"]. Kullanıcı herhangi bir olanak/özellik istediğinde MUTLAKA bu parametreyi kullanın.',
+            'Yurtta kesinlikle bulunması istenen olanaklar listesi. Örnekler: ["Banyo"], ["Wc-Banyo"], ["Otopark"], ["Yüzme havuzu"], ["Spor Salonu"], ["Okul Servisi"], ["Restoran - Yemekhane"], ["Klima"], ["Balkon"], ["Kütüphane"], ["24 Saat Güvenlik"]. Kullanıcı oda içinde banyo/tuvalet, otopark, yemek gibi herhangi bir olanak istediğinde MUTLAKA bu parametreyi kullanın.',
         },
         feature: {
           type: Type.STRING,
           description:
-            'Tek bir olanak/özellik aramak için kısayol (Örn: "Otopark", "Havuz", "Spor Salonu", "Servis", "Yemek", "Klima", "Balkon").',
+            'Tek bir olanak/özellik aramak için kısayol (Örn: "Banyo", "Wc-Banyo", "Otopark", "Havuz", "Spor Salonu", "Servis", "Yemek", "Klima", "Balkon").',
         },
         query: {
           type: Type.STRING,
@@ -57,9 +57,15 @@ export const dormFunctionDeclarations: FunctionDeclaration[] = [
           type: Type.NUMBER,
           description: 'Minimum Google puanı (örn: 4.0)',
         },
+        excludeDormIds: {
+          type: Type.ARRAY,
+          items: { type: Type.INTEGER },
+          description:
+            'Daha önce kullanıcıya gösterilmiş yurtların ID numaraları listesi. Kullanıcı "başka yok mu?", "daha fazla göster", "diğer seçenekler", "başka yurtlar" dediğinde aynı yurtları tekrar göstermemek için önceki mesajlarda listelenen yurtların ID\'lerini buraya verin.',
+        },
         limit: {
           type: Type.INTEGER,
-          description: 'Getirilecek maksimum yurt sayısı (varsayılan 5, max 10)',
+          description: 'Getirilecek maksimum yurt sayısı (varsayılan 3, max 10)',
         },
       },
     },
@@ -164,7 +170,8 @@ export async function executeDormTool(name: string, args: Record<string, any>): 
           minPrice: args.minPrice,
           maxPrice: args.maxPrice,
           minRating: args.minRating,
-          limit: args.limit || 5,
+          excludeDormIds: Array.isArray(args.excludeDormIds) ? args.excludeDormIds : undefined,
+          limit: args.limit || 3,
         });
 
         const requestedFeatureList = [
@@ -175,7 +182,7 @@ export async function executeDormTool(name: string, args: Record<string, any>): 
         if (results.length === 0) {
           let guidanceMessage = 'Belirtilen filtreleme kriterlerine uygun yurt bulunamadı.';
           if (requestedFeatureList.length > 0) {
-            guidanceMessage = `DİKKAT: ${args.district || 'Belirtilen'} bölgesinde "${requestedFeatureList.join(', ')}" olanağına sahip ${args.gender || ''} yurdu veritabanında BULUNAMADI (0 sonuç). ASLA bu özelliği olmayan bir yurdu "${requestedFeatureList.join(', ')} var" diyerek kullanıcıya sunmayın! İlçe filtresini kaldırıp şehir genelinde arama yapabilir veya kullanıcıya bu bölgede bu özelliğe sahip yurt olmadığını dürüstçe belirtebilirsiniz.`;
+            guidanceMessage = `DİKKAT: ${args.district || args.city || 'Belirtilen'} bölgesinde "${requestedFeatureList.join(', ')}" olanağına sahip ${args.gender || ''} yurdu veritabanında BULUNAMADI (0 sonuç). ASLA kriterleri esnetip bu özelliği olmayan yurtları varmış gibi sunmayın veya uydurmayın! Kullanıcıya bu kriterlere (${requestedFeatureList.join(', ')}) sahip yurt bulunamadığını net ve dürüstçe söyleyin.`;
           }
 
           output = {

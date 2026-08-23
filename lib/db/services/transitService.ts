@@ -123,21 +123,39 @@ export async function getNearbyTransitStations(
 
   try {
     const rows = await executeQuery<any>(sql, params);
-    return rows.map((r) => {
+    
+    // Group stations with same name (e.g. transfer stations serving multiple lines like A1 and M1)
+    const groupedMap = new Map<string, TransitStationResult>();
+    
+    for (const r of rows) {
       const dKm = Number(r.distance_km);
-      return {
-        id: r.id,
-        name: r.name,
-        type: r.type,
-        lineCode: r.line_code,
-        lineName: r.line_name,
-        city: r.city,
-        lat: Number(r.lat),
-        lng: Number(r.lng),
-        distanceKm: Math.round(dKm * 100) / 100,
-        distanceMeters: Math.round(dKm * 1000),
-      };
-    });
+      const nameKey = (r.name || '').trim().toLowerCase();
+      
+      if (groupedMap.has(nameKey)) {
+        const existing = groupedMap.get(nameKey)!;
+        if (r.line_code && !existing.lineCode?.includes(r.line_code)) {
+          existing.lineCode = existing.lineCode ? `${existing.lineCode}, ${r.line_code}` : r.line_code;
+        }
+        if (r.line_name && !existing.lineName?.includes(r.line_name)) {
+          existing.lineName = existing.lineName ? `${existing.lineName} / ${r.line_name}` : r.line_name;
+        }
+      } else {
+        groupedMap.set(nameKey, {
+          id: r.id,
+          name: r.name,
+          type: r.type,
+          lineCode: r.line_code,
+          lineName: r.line_name,
+          city: r.city,
+          lat: Number(r.lat),
+          lng: Number(r.lng),
+          distanceKm: Math.round(dKm * 100) / 100,
+          distanceMeters: Math.round(dKm * 1000),
+        });
+      }
+    }
+
+    return Array.from(groupedMap.values()).slice(0, limit);
   } catch (err) {
     console.error('getNearbyTransitStations query failed:', err);
     return [];
