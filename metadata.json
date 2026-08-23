@@ -1,0 +1,6 @@
+{
+  "name": "Eyurtlar AI Asistanı",
+  "description": "Türkiye'deki üniversiteler, öğrenci yurtları, tahmini fiyatlar ve ulaşım bilgilerini MySQL veritabanından güvenli sorgulayan zeki yapay zeka asistanı.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
